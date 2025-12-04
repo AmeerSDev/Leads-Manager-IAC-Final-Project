@@ -1,5 +1,5 @@
 # Application User Guide
-This guide provides step-by-step instructions for deploying and running the Leads Manager application.<br>
+This guide provides step-by-step instructions for deploying and running the Leads Manager (IT Asset Management) application.<br>
 There are two deployment methods available:
 1. **Manual Deployment** - Deploy infrastructure and application manually
 2. **CI/CD Deployment** - Automated deployment via GitHub Actions
@@ -34,12 +34,12 @@ For manual deployment method, ensure you have the following installed on your lo
 
 ## Method 1: Manual Deployment
 1. Start your AWS Academy Sandbox (Architecture Course Lab)
-2. Open Visual Studio Code and clone your Leads Manager repository
+2. Open Visual Studio Code and add clone [GitHub Repository](https://github.com/dcoacher/Leads Manager/)
 3. Open Bash Terminal
 4. Build and Push an Application Image to Docker Hub
-- Build the image: `docker build -f docker/Dockerfile -t <your_dockerhub_username>/leads-manager:latest .`
+- Build the image: `docker build -f docker/Dockerfile -t <your_dockerhub_username>/Leads Manager-app:latest .`
 - Login to Docker Hub: `docker login`
-- Push the image: `docker push <your_dockerhub_username>/leads-manager:latest`
+- Push the image: `docker push <your_dockerhub_username>/Leads Manager-app:latest`
 5. Navigate to the Terraform directory and update the next values in`terraform.tfvars`:
 - aws_access_key_id     = `"aws_access_key_id_value"`
 - aws_secret_access_key = `"aws_secret_access_key_value"`
@@ -96,22 +96,22 @@ ansible-playbook nfs.yml
 19. Install an Application on K8s Cluster by Deployment Script using `Helm`
 ```bash
 cd ~/helm
-./deploy.sh docker.io/<your_dockerhub_username>/leads-manager latest
+./deploy.sh docker.io/<your_dockerhub_username>/Leads Manager-app latest
 ```
 20. Verify Deployment
 ```bash
 # Check pods
-kubectl get pods -l app=leads-manager
+kubectl get pods -l app=Leads Manager-app
 
 # Check service
-kubectl get svc leads-manager
+kubectl get svc Leads Manager-app
 ```
 21. Obtain AWS Load Balancer URL and access the application for further tests performing
 
 ## Method 2: CI/CD Deployment
 1. Start your AWS Academy Sandbox (Architecture Course Lab)
 2. Login to GitHub Account
-3. Fork the Leads Manager application repository (your copy of this project)
+3. Fork the Leads Manager Application from [GitHub Repository](https://github.com/dcoacher/Leads Manager/)
 4. Navitage to forked repository `Actions` and click on the `I understand my workflows, go ahead and enable them` button
 5. Navigate to `Settings` tab
 6. Choose `Secrets and variables` and `Actions`

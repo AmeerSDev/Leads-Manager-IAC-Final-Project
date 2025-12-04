@@ -1,0 +1,348 @@
+# CICD Process (contains multiple phases)
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  DOCKER_IMAGE: leads-manager
+  DOCKER_TAG: ${{ github.sha }}
+
+jobs:
+  # Phase 1: Test
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flask==3.0.0 pytest==8.2.1
+
+      - name: Run tests
+        run: |
+          pytest .github/workflows/tests/ -v --tb=short
+
+  # Phase 2: Build Docker Image
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG }}
+            ${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE }}:latest
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE }}:buildcache,mode=max
+
+  # Phase 3: Infrastructure Setup (Terraform + K8s Cluster)
+  infrastructure:
+    name: Setup Infrastructure
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    outputs:
+      control_plane_ip: ${{ steps.terraform-output.outputs.control_plane_ip }}
+      worker1_ip: ${{ steps.terraform-output.outputs.worker1_ip }}
+      worker2_ip: ${{ steps.terraform-output.outputs.worker2_ip }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Create terraform.tfvars from secrets
+        working-directory: iac/terraform
+        run: |
+          cat > terraform.tfvars <<EOF
+          aws_region            = "${{ secrets.AWS_REGION || 'us-east-1' }}"
+          aws_access_key_id     = "${{ secrets.AWS_ACCESS_KEY_ID }}"
+          aws_secret_access_key = "${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+          aws_session_token     = "${{ secrets.AWS_SESSION_TOKEN }}"
+          ami_id                = "${{ secrets.AWS_AMI_ID || 'ami-0c398cb65a93047f2' }}"
+          instance_type         = "${{ secrets.AWS_INSTANCE_TYPE || 't3.medium' }}"
+          docker_repo           = "${{ secrets.DOCKER_USERNAME }}"
+          EOF
+
+      - name: Terraform Init
+        working-directory: iac/terraform
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: iac/terraform
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        working-directory: iac/terraform
+        run: terraform apply -auto-approve tfplan
+
+      - name: Get Terraform Outputs
+        id: terraform-output
+        working-directory: iac/terraform
+        run: |
+          CONTROL_PLANE_IP=$(terraform output -raw CONTROL-PLANE-PUBLIC-IP)
+          WORKER1_IP=$(terraform output -raw WORKER-1-PUBLIC-IP)
+          WORKER2_IP=$(terraform output -raw WORKER-2-PUBLIC-IP)
+          echo "control_plane_ip=$CONTROL_PLANE_IP" >> $GITHUB_OUTPUT
+          echo "worker1_ip=$WORKER1_IP" >> $GITHUB_OUTPUT
+          echo "worker2_ip=$WORKER2_IP" >> $GITHUB_OUTPUT
+
+      - name: Upload SSH key as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssh-key
+          path: iac/terraform/KP.pem
+          retention-days: 1
+
+      - name: Wait for EC2 instances to be ready
+        run: |
+          CONTROL_PLANE_IP="${{ steps.terraform-output.outputs.control_plane_ip }}"
+          WORKER1_IP="${{ steps.terraform-output.outputs.worker1_ip }}"
+          WORKER2_IP="${{ steps.terraform-output.outputs.worker2_ip }}"
+          for IP in "$CONTROL_PLANE_IP" "$WORKER1_IP" "$WORKER2_IP"; do
+            for i in {1..30}; do
+              if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -i iac/terraform/KP.pem ubuntu@$IP "echo 'ready'" 2>/dev/null; then
+                break
+              fi
+              sleep 10
+            done
+          done
+          sleep 30
+
+      - name: Set up SSH keys
+        run: |
+          mkdir -p ~/.ssh
+          cp iac/terraform/KP.pem ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          CONTROL_PLANE_IP="${{ steps.terraform-output.outputs.control_plane_ip }}"
+          WORKER1_IP="${{ steps.terraform-output.outputs.worker1_ip }}"
+          WORKER2_IP="${{ steps.terraform-output.outputs.worker2_ip }}"
+          ssh-keyscan -H $CONTROL_PLANE_IP >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H $WORKER1_IP >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -H $WORKER2_IP >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Wait for Kubernetes control plane to be ready
+        run: |
+          CONTROL_PLANE_IP="${{ steps.terraform-output.outputs.control_plane_ip }}"
+          for i in {1..60}; do
+            if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@$CONTROL_PLANE_IP "test -f /etc/kubernetes/admin.conf" 2>/dev/null; then
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              exit 1
+            fi
+            sleep 10
+          done
+          for i in {1..60}; do
+            API_STATUS=$(ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@$CONTROL_PLANE_IP "sudo crictl ps --name kube-apiserver --state Running 2>/dev/null | grep -c kube-apiserver || echo '0'" 2>/dev/null || echo "0")
+            if [ "$API_STATUS" != "0" ]; then
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              exit 1
+            fi
+            sleep 10
+          done
+          for i in {1..60}; do
+            if ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@$CONTROL_PLANE_IP "kubectl --kubeconfig=/home/ubuntu/.kube/config cluster-info &>/dev/null" 2>/dev/null; then
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Get join command from control plane
+        id: join-command
+        run: |
+          CONTROL_PLANE_IP="${{ steps.terraform-output.outputs.control_plane_ip }}"
+          JOIN_CMD=$(ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@$CONTROL_PLANE_IP "cat /home/ubuntu/join-command.sh")
+          echo "join_command<<EOF" >> $GITHUB_OUTPUT
+          echo "$JOIN_CMD" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Rename and join worker 1
+        run: |
+          WORKER1_IP="${{ steps.terraform-output.outputs.worker1_ip }}"
+          JOIN_CMD="${{ steps.join-command.outputs.join_command }}"
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@$WORKER1_IP <<ENDSSH
+            set -e
+            INSTANCE_ID=\$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+            sudo hostnamectl set-hostname k8s-worker-\${INSTANCE_ID}
+            sudo $JOIN_CMD
+          ENDSSH
+
+      - name: Rename and join worker 2
+        run: |
+          WORKER2_IP="${{ steps.terraform-output.outputs.worker2_ip }}"
+          JOIN_CMD="${{ steps.join-command.outputs.join_command }}"
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@$WORKER2_IP <<ENDSSH
+            set -e
+            INSTANCE_ID=\$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+            sudo hostnamectl set-hostname k8s-worker-\${INSTANCE_ID}
+            sudo $JOIN_CMD
+          ENDSSH
+
+      - name: Wait for all nodes to be ready
+        run: |
+          CONTROL_PLANE_IP="${{ steps.terraform-output.outputs.control_plane_ip }}"
+          for i in {1..30}; do
+            NODE_COUNT=$(ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@$CONTROL_PLANE_IP "kubectl --kubeconfig=/home/ubuntu/.kube/config get nodes --no-headers 2>/dev/null | wc -l" || echo "0")
+            READY_COUNT=$(ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@$CONTROL_PLANE_IP "kubectl --kubeconfig=/home/ubuntu/.kube/config get nodes --no-headers 2>/dev/null | grep -c Ready || echo '0'")
+            if [ "$NODE_COUNT" -ge "3" ] && [ "$READY_COUNT" -ge "3" ]; then
+              break
+            fi
+            sleep 10
+          done
+
+      - name: Configure NFS clients on worker nodes using Ansible
+        run: |
+          CONTROL_PLANE_IP="${{ steps.terraform-output.outputs.control_plane_ip }}"
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ubuntu@$CONTROL_PLANE_IP <<ENDSSH
+            set -e
+            cd /home/ubuntu/ansible
+            ansible-playbook nfs.yml
+          ENDSSH
+
+
+  # Phase 4: Deploy to Kubernetes
+  deploy:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    needs: [build, infrastructure]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'latest'
+
+      - name: Download SSH key artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ssh-key
+          path: ~/.ssh/
+
+      - name: Set up SSH and get kubeconfig
+        run: |
+          chmod 600 ~/.ssh/KP.pem
+          CONTROL_PLANE_IP="${{ needs.infrastructure.outputs.control_plane_ip }}"
+          mkdir -p ~/.kube
+          mkdir -p ~/.ssh
+          ssh-keyscan -H $CONTROL_PLANE_IP >> ~/.ssh/known_hosts 2>/dev/null || true
+          # Get kubeconfig from control plane
+          ssh -i ~/.ssh/KP.pem -o StrictHostKeyChecking=no ubuntu@$CONTROL_PLANE_IP "cat /home/ubuntu/.kube/config" > ~/.kube/config
+          chmod 600 ~/.kube/config
+          # Update to use public IP
+          sed -i "s|10.0.1.10:6443|$CONTROL_PLANE_IP:6443|g" ~/.kube/config
+          kubectl config set-cluster kubernetes --insecure-skip-tls-verify=true
+
+      - name: Ensure NFS clients are configured on worker nodes
+        run: |
+          CONTROL_PLANE_IP="${{ needs.infrastructure.outputs.control_plane_ip }}"
+          ssh -i ~/.ssh/KP.pem -o StrictHostKeyChecking=no ubuntu@$CONTROL_PLANE_IP <<ENDSSH
+            set -e
+            cd /home/ubuntu/ansible
+            if [ -f nfs.yml ]; then
+              ansible-playbook nfs.yml || true
+            fi
+          ENDSSH
+
+      - name: Deploy NFS PersistentVolume
+        run: |
+          kubectl apply -f - <<EOF || true
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: leads-manager-nfs-pv
+            labels:
+              type: nfs
+          spec:
+            capacity:
+              storage: 10Gi
+            accessModes:
+              - ReadWriteMany
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: nfs-client
+            nfs:
+              path: /srv/nfs/k8s
+              server: 10.0.1.10
+            mountOptions:
+              - soft
+              - timeo=30
+              - retrans=3
+              - nfsvers=4.1
+          ---
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+            name: nfs-client
+          provisioner: kubernetes.io/no-provisioner
+          volumeBindingMode: Immediate
+          EOF
+
+      - name: Deploy application using deploy.sh
+        run: |
+          set -e
+          CONTROL_PLANE_IP="${{ needs.infrastructure.outputs.control_plane_ip }}"
+          IMAGE_REPO="${{ secrets.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE }}"
+          IMAGE_TAG="${{ env.DOCKER_TAG }}"
+          ssh -i ~/.ssh/KP.pem -o StrictHostKeyChecking=no ubuntu@$CONTROL_PLANE_IP <<ENDSSH
+            cd /home/ubuntu/helm
+            ./deploy.sh "$IMAGE_REPO" "$IMAGE_TAG"
+          ENDSSH
