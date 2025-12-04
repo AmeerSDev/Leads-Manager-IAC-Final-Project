@@ -1,0 +1,5 @@
+[
+  { "name": "John", "last_name": "Doe", "deal-id": 1, "is_active": true, "est_value": 5000 },
+  { "name": "Jane", "last_name": "Smith", "deal-id": 2, "is_active": true, "est_value": 7500 },
+  { "name": "Sam", "last_name": "Lee", "deal-id": 3, "is_active": false, "est_value": 3200 }
+]
