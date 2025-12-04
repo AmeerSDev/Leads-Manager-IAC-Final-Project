@@ -213,3 +213,6 @@ __marimo__/
 *.tfstate.backup
 tfplan
 KP.pem
+
+# Terraform secrets
+terraform.tfvars
