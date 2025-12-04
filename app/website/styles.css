@@ -57,23 +57,6 @@ body {
     z-index: 1;
 }
 
-.brand-mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 14px;
-    padding: 10px 12px;
-    margin-bottom: 10px;
-}
-
-.brand-mark img {
-    height: 54px;
-    width: auto;
-    display: block;
-}
-
 .eyebrow {
     margin: 0 0 8px;
     letter-spacing: 0.08em;
@@ -93,12 +76,6 @@ h1 {
     color: rgba(255, 255, 255, 0.8);
     max-width: 520px;
     line-height: 1.5;
-}
-
-.hero-actions {
-    display: flex;
-    gap: 12px;
-    align-items: center;
 }
 
 .hero-stats {
@@ -306,8 +283,12 @@ tr:hover td {
 }
 
 .status-badge:not(.active) {
-    background: rgba(19, 59, 83, 0.08);
-    color: #6b7280;
+    background: rgba(228, 139, 26, 0.12);
+    color: #b0371a;
+}
+
+.status-badge:not(.active) .dot {
+    background: #b0371a;
 }
 
 .row-actions {

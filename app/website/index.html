@@ -13,16 +13,9 @@
     <div class="page">
         <header class="hero">
             <div class="hero-left">
-                <div class="brand-mark">
-                    <img src="{{ url_for('static', filename='logo.png') }}" alt="Leads Manager logo">
-                </div>
                 <p class="eyebrow">Open deals. Track metrics. All customers.</p>
                 <h1>Leads Manager</h1>
                 <p class="subtitle">A clean pipeline view with instant persistence and a CI/CD-ready stack.</p>
-                <div class="hero-actions">
-                    <button class="btn btn-primary" ng-click="resetForm()">New Lead</button>
-                    <a class="btn btn-ghost" href="#leads-table">View Pipeline</a>
-                </div>
             </div>
             <div class="hero-stats">
                 <div class="stat-card">
@@ -66,7 +59,6 @@
                     <div class="actions">
                         <button type="submit" class="btn btn-primary" ng-disabled="userForm.$invalid"
                                 ng-bind="isEditing ? 'Update Lead' : 'Add Lead'"></button>
-                        <button type="button" class="btn btn-ghost" ng-click="resetForm()" ng-show="isEditing">Cancel</button>
                     </div>
                 </form>
                 <div ng-show="message.text" class="alert" ng-class="{'alert-success': message.type === 'success', 'alert-error': message.type === 'error'}">
@@ -76,7 +68,7 @@
 
             <section class="panel table-panel" id="leads-table">
                 <div class="panel-header">
-                    <h2>Pipeline <span class="chip" ng-bind="usersOBJ.length + ' leads'"></span></h2>
+                    <h2>Leads Tracker</h2>
                 </div>
                 <div class="table-container" ng-show="usersOBJ.length > 0">
                     <table>
