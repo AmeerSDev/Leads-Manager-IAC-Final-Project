@@ -6,9 +6,17 @@
 ![Kubernetes](https://img.shields.io/badge/kubernetes-kubeadm-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+
 <p align="center">
-  <img src="https://via.placeholder.com/280x80?text=Leads+Manager+Logo" alt="Project Logo"/>
+  <img 
+    src="https://github.com/user-attachments/assets/efa90960-5329-43f6-a62e-39019d0cfad4"
+    alt="Gemini_Generated_Image_dprqzpdprqzpdprq"
+    width="256"
+    height="256"
+  />
 </p>
+
+
 
 A fully containerized **Flask + AngularJS** leads-tracking platform with file-backed JSON persistence, deployed on AWS using Terraform, Kubernetes (kubeadm), Helm, and GitHub Actions CI/CD.
 
