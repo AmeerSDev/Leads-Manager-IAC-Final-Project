@@ -79,16 +79,16 @@ GitHub Actions CI/CD (Build → Push → Terraform → Helm)
 # 🧭 Manual Deployment Guide (AWS)
 
 ## 1️⃣ Clone the repo
-\`\`\`bash
+```bash
 git clone https://github.com/AmeerSDev/Leads-Manager-IAC-Final-Project.git
 cd Leads-Manager-IAC-Final-Project
-\`\`\`
+```
 
 ---
 
 ## 2️⃣ Local Docker test
 
-\`\`\`bash
+```bash
 docker build -t leads-manager -f docker/Dockerfile .
 mkdir -p ./tmp-data
 
@@ -96,13 +96,13 @@ docker run --rm -p 5000:5000 \
   -v "$PWD/tmp-data:/data" \
   -e LEADS_DATA_FILE=/data/leads_data.json \
   leads-manager
-\`\`\`
+```
 
 Test:
-\`\`\`bash
+```bash
 curl http://localhost:5000/health
 curl http://localhost:5000/leads
-\`\`\`
+```
 
 ---
 
@@ -110,7 +110,7 @@ curl http://localhost:5000/leads
 
 > ⚠️ Do *not* commit this file.
 
-\`\`\`bash
+```bash
 cat > iac/terraform/terraform.tfvars <<'EOF'
 aws_region            = "us-east-1"
 aws_access_key_id     = "REPLACE_ME"
@@ -121,28 +121,28 @@ ami_id                = "ami-0c398cb65a93047f2"
 instance_type         = "t3.medium"
 docker_repo           = "<your_dockerhub_user>"
 EOF
-\`\`\`
+```
 
 ---
 
 ## 4️⃣ (Optional) Build & push image
 
-\`\`\`bash
+```bash
 docker build -t <your_dockerhub_user>/leads-manager:latest -f docker/Dockerfile .
 docker push <your_dockerhub_user>/leads-manager:latest
-\`\`\`
+```
 
 ---
 
 ## 5️⃣ Terraform Deploy
 
-\`\`\`bash
+```bash
 cd iac/terraform
 terraform init
 terraform plan -out=tfplan
 terraform apply tfplan
 terraform output
-\`\`\`
+```
 
 Required outputs:
 
@@ -155,7 +155,7 @@ Required outputs:
 
 ## 6️⃣ Join Workers (if not auto-joined)
 
-\`\`\`bash
+```bash
 ssh -i KP.pem ubuntu@<control_plane_ip>
 JOIN_CMD=$(cat /home/ubuntu/join-command.sh)
 
@@ -163,13 +163,13 @@ ssh -i KP.pem ubuntu@10.0.1.11 "sudo hostnamectl set-hostname k8s-worker-1; sudo
 ssh -i KP.pem ubuntu@10.0.2.11 "sudo hostnamectl set-hostname k8s-worker-2; sudo $JOIN_CMD"
 
 kubectl get nodes -o wide
-\`\`\`
+```
 
 ---
 
 ## 7️⃣ Deploy via Helm
 
-\`\`\`bash
+```bash
 cd /home/ubuntu/helm
 IMAGE_REPO="docker.io/<your_dockerhub_user>/leads-manager"
 IMAGE_TAG="latest"
@@ -178,13 +178,13 @@ IMAGE_TAG="latest"
 
 kubectl get pods
 kubectl get svc leads-manager
-\`\`\`
+```
 
 ---
 
 ## 8️⃣ Add NFS Persistent Volume (shared data)
 
-\`\`\`bash
+```bash
 kubectl apply -f - <<'EOF'
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -197,11 +197,11 @@ spec:
     requests:
       storage: 1Gi
 EOF
-\`\`\`
+```
 
 Mount PVC into the deployment:
 
-\`\`\`bash
+```bash
 kubectl set env deployment/leads-manager LEADS_DATA_FILE=/data/leads_data.json
 
 kubectl patch deployment leads-manager --type=json -p \
@@ -211,16 +211,16 @@ kubectl patch deployment leads-manager --type=json -p \
 '[{"op":"add","path":"/spec/template/spec/volumes","value":[{"name":"leads-data","persistentVolumeClaim":{"claimName":"leads-manager-pvc"}}]}]'
 
 kubectl rollout status deployment/leads-manager
-\`\`\`
+```
 
 ---
 
 ## 9️⃣ Test through the ALB
 
-\`\`\`bash
+```bash
 curl http://<ALB-DNS-NAME>/health
 curl http://<ALB-DNS-NAME>/leads
-\`\`\`
+```
 
 ---
 
