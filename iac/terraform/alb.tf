@@ -34,6 +34,12 @@ resource "aws_lb_target_group" "LEADS_TG" {
     matcher             = "200"
   }
 
+  stickiness {
+    enabled         = true
+    type            = "lb_cookie"
+    cookie_duration = 300  # seconds
+  }
+
   tags = {
     Name = "leads-manager-tg"
   }
