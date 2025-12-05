@@ -1,0 +1,7 @@
+aws_region            = "us-east-1"
+aws_access_key_id     = "REPLACE_ME"
+aws_secret_access_key = "REPLACE_ME"
+aws_session_token     = "REPLACE_ME"
+ami_id                = "ami-0c398cb65a93047f2"
+instance_type         = "t3.medium"
+docker_repo           = "REPLACE_ME"

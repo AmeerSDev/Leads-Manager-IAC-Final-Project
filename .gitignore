@@ -215,4 +215,3 @@ tfplan
 KP.pem
 
 # Terraform secrets
-terraform.tfvars
